@@ -18,16 +18,16 @@ ggplot(data = ysamp) +
 
 
 
-stats4::mle(x)
+#stats4::mle(x)
 
 densy <- density(y)
 
 plot(density(y))
 
-densy(6.2)
+#densy(6.2)
 
 ykde = kdensity(y)
-plot(ykde,  -2,15)
+#plot(ykde,  -2,15)
 
 ykderealgap <- function(x) {dnorm(x, mean = 6.3, sd = 2.2) - ykde(x)}
 
@@ -156,5 +156,32 @@ ggplot(whitingDF, aes(x = l), adjust = 1.5) +
 ## Define the square
 gammaWhitingGapSquared <- function (x, siap, maint) {gammaWhitingGap(x, siap, maint)^2}
 
-gammaErrorSq <- function (siap, maint) {integrate }
+gammaErrorSq <- function (alpha, beta) {integrate(gammaWhitingGapSquared, lower = -1, upper = 15, siap = alpha, maint =beta)}
+
+# integrate(gammaWhitingGapSquared, lower = -1, upper = 15, siap = 5, maint =0.8)
+
+alphaNum <- 5
+alphaTable <- seq(1, 10, length.out = alphaNum)
+betaNum <- 5
+betaTable <- seq(0.01, 10, length.out = betaNum)
+gammaTable <- matrix(nrow = alphaNum, ncol = betaNum)
+for (i in 1:alphaNum) {
+  for (j in 1:betaNum) {
+    gammaTable[i,j] = gammaErrorSq(alphaTable[i], betaTable[j])$value
+  }
+}
+
+
+
+
+exploreInt <- gammaErrorSq(5,0.8)
+
+
+
+
+
+
+
+
+
 
