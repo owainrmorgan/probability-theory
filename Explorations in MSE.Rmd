@@ -1,0 +1,163 @@
+---
+title: "Estimating PDF Parameters"
+author: "Owain Morgan"
+date: "24/02/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The problem at hand at first sight could be considered an easy one-
+namely how to fit the most appropriate distribution to a given set of data.
+
+```{r}
+library(tidyverse)
+
+library(stats4)
+
+library(kdensity)
+load("data/stomach_dataset.Rdata")
+library(dplyr)
+library(tidyverse)
+library(bbmle)
+library(mizer)
+
+## We here only have species, prey & predator weight and the number of prey
+df <- stom_df |>
+  transmute(Species = pred_species,
+            wprey = prey_weight_g,
+            wpredator = pred_weight_g,
+            Nprey = prey_count / n_stomachs)
+
+ogDF <- df
+
+
+## Remove any observation with wprey = 0
+df = df %>% 
+  filter(df$wprey != 0)
+
+
+## Add ppmr and log ppmr columns for each observation
+
+df = df %>% 
+  mutate(ppmr = wpredator/wprey, l = log(wpredator/wprey))
+
+
+whitingDF <- filter(df, df$Species == "Merlangius merlangus")
+```
+
+
+## Quantifying Closeness
+As we seek to find the most approprite fit for our data, it is first
+imperative that we can quantify what is a good fit.
+Consider these two Gamma estimates to the whiting
+stomach log predator-prey mass ratio.
+```{r, fig.cap="Using alpha = 5, beta = 0.8"}
+gammdf <- tibble(
+  l = seq(0, 15, length.out=200),
+  d = dgamma(l, shape = 5, scale=0.8)
+)
+ggplot(whitingDF, aes(x = l), adjust = 1.5) +
+  geom_density() +
+  geom_line(data = gammdf, aes(l, d))
+```
+
+```{r, fig.cap="Using alpha = 7, beta = 1.9"}
+gammdf <- tibble(
+  l = seq(0, 30, length.out=200),
+  d = dgamma(l, shape = 7, scale=1.9)
+)
+ggplot(whitingDF, aes(x = l), adjust = 1.5) +
+  geom_density() +
+  geom_line(data = gammdf, aes(l, d)) +
+  xlim(0,30)
+```
+
+
+Clearly, the first choice of parameters is far more appropriate for the data in question.
+Our first task is to consider some way of quantifying the difference.
+
+Let the kernel density estimate for the data be
+$f_k(x)$
+and let the pdf of our estimate be
+$f_E(x)$.
+Then we can estimate the error, 
+$$\varepsilon = \int_{- \infty}^{\infty} \left( f_k(x) - f_E(x) \right)^2 d x.$$
+
+## Whiting Data
+
+We can make a matrix using different estimates for $\alpha$ and $\beta$.
+Let us assume for the whiting data that
+$1<\alpha < 10$ and $0<\beta<5$.
+```{r}
+whitingKDE <- kdensity(whitingDF$l)
+
+
+gammaWhitingGap <- function(x , siap, maint)
+{dgamma(x, shape = siap, scale = maint) - whitingKDE(x)}
+gammaWhitingGapSquared <- function (x, siap, maint) {gammaWhitingGap(x, siap, maint)^2}
+
+gammaErrorSq <- function (alpha, beta) {integrate(gammaWhitingGapSquared, lower = -1, upper = 30, siap = alpha, maint =beta)}
+
+alphaNum <- 5
+alphaTable <- seq(1, 10, length.out = alphaNum)
+betaNum <- 5
+betaTable <- seq(0.01, 10, length.out = betaNum)
+gammaTable <- matrix(nrow = alphaNum, ncol = betaNum)
+for (i in 1:alphaNum) {
+  for (j in 1:betaNum) {
+    gammaTable[i,j] = gammaErrorSq(alphaTable[i], betaTable[j])$value
+  }
+}
+
+gammaTable
+```
+
+We can then extract the minimum valuue of this.
+We can now consider optimising for $\alpha, \beta$
+to get the best approximation.
+We could continue by expanding around the smallest value.
+
+This method has the serious disadvantage in R that
+the \textt{integrate} function is computationally expensive.
+
+
+## Maximum Likelihood Estimation for Gamma Distribution
+
+From cursory research, it seems that we can use the method of momnents
+to try to find the parameters
+\footnote{https://ocw.mit.edu/courses/mathematics/18-443-statistics-for-applications-spring-2015/lecture-notes/MIT18_443S15_LEC3.pdf, p.11}. 
+
+Suppose $W \sim G(\alpha, \beta)$
+then using the method of moments estimator,
+we estimate
+$$\hat{\beta}_{MOM} = \frac{\overline{W}}{\hat{\sigma}_W^2}
+\ \& \
+\hat{\alpha} = \frac{\overline{W}^2}{\hat{\sigma}_W^2}
+$$
+
+```{r}
+betamom = mean(whitingDF$l) / var(whitingDF$l)
+alphamom = mean(whitingDF$l)^2 / var(whitingDF$l)
+```
+Let us now plot these parameter estimates.
+```{r}
+gammdf <- tibble(
+  l = seq(0, 30, length.out=200),
+  d = dgamma(l, shape = alphamom, scale = 1/betamom)
+)
+ggplot(whitingDF, aes(x = l), adjust = 1.5) +
+  geom_density() +
+  geom_line(data = gammdf, aes(l, d)) +
+  xlim(0,15)
+```
+
+The error with these parameters is
+```{r}
+momerr = gammaErrorSq(alphamom, 1/betamom)
+momerr$value
+```
+This is actually better than any of the values in the matrix so we can consider
+this to be a good estimate.
